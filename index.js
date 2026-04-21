@@ -148,21 +148,14 @@ function startAFK(interaction,user){
       const dm = await interaction.user.createDM();
 
       const row = new ActionRowBuilder().addComponents(
-new ButtonBuilder()
-    .setCustomId('seguir')
-    .setLabel('Sigo activo')
-    .setStyle(ButtonStyle.Success),
-
-  new ButtonBuilder()
-    .setCustomId('afk_no')
-    .setLabel('No')
-    .setStyle(ButtonStyle.Danger)
-);
+        new ButtonBuilder().setCustomId('seguir').setLabel('Sigo activo').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('afk_no').setLabel('No').setStyle(ButtonStyle.Danger)
+      );
 
       await dm.send({
-         content:'⚠️ ¿Sigues trabajando?',
-          components:[row]
-         });
+        content:'⚠️ ¿Sigues trabajando?',
+        components:[row]
+      });
 
       confirmTimers[user] = setTimeout(()=>autoSalida(interaction,user),60000);
 
@@ -179,11 +172,8 @@ async function autoSalida(interaction,user){
 
   const embed = new EmbedBuilder()
     .setTitle('🚫 Turno Finalizado Automáticamente')
-    .setDescription(
-      `👤 ${interaction.member}\n\n` +
-      `⚠️ No respondiste.\n📉 Inactividad detectada.\n❌ Tiempo no registrado.`
-    )
-    .setColor('#ff0000')
+    .setDescription(`👤 ${interaction.member}\n⚠️ Inactividad detectada`)
+    .setColor('#ff0000');
     .setImage('https://i.imgur.com/JTmf52O.png');
 
   delete data[user];
@@ -196,54 +186,43 @@ client.on('interactionCreate', async (interaction)=>{
 
   const user = interaction.user.id;
 
+  // SEGUIR
   if (interaction.isButton() && interaction.customId === 'seguir') {
+    if (confirmTimers[user]) clearTimeout(confirmTimers[user]);
+    if (timers[user]) clearTimeout(timers[user]);
 
-  if (confirmTimers[user]) clearTimeout(confirmTimers[user]);
-  if (timers[user]) clearTimeout(timers[user]);
+    data[user] = Date.now();
+    startAFK(interaction, user);
 
-  data[user] = Date.now();
-  startAFK(interaction, user);
-
-  return interaction.reply({ 
-    content: '✅ Sigues activo', 
-    ephemeral: true 
-  });
-}
-
-    // ❌ BOTÓN NO (SALIDA AUTOMÁTICA)
-if (interaction.isButton() && interaction.customId === 'afk_no') {
-
-  if (!data[user]) {
-    return interaction.reply({ content: '❌ Ya no estás en servicio', ephemeral: true });
+    return interaction.reply({ content: '✅ Sigues activo', ephemeral: true });
   }
 
-  const tiempoMs = Date.now() - data[user];
+  // AFK NO
+  if (interaction.isButton() && interaction.customId === 'afk_no') {
+    if (!data[user]) return interaction.reply({ content: '❌ Ya no estás en servicio', ephemeral: true });
 
-  const minutos = Math.floor(tiempoMs / 60000);
-  const horas = Math.floor(minutos / 60);
-  const minsRestantes = minutos % 60;
+    const tiempoMs = Date.now() - data[user];
 
-  let tiempoFinal;
+    const minutos = Math.floor(tiempoMs / 60000);
+    const horas = Math.floor(minutos / 60);
+    const minsRestantes = minutos % 60;
 
-  if (horas > 0) {
-    tiempoFinal = `${horas}h ${minsRestantes}m`;
-  } else {
-    tiempoFinal = `${minsRestantes}m`;
+    let tiempoFinal = horas > 0 ? `${horas}h ${minsRestantes}m` : `${minsRestantes}m`;
+
+    totalHoras[user] = (totalHoras[user] || 0) + (tiempoMs / 3600000);
+    delete data[user];
+
+    return interaction.reply({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle('🔴 Salida automática AFK')
+          .setDescription(`${interaction.member}\n⏱️ ${tiempoFinal}`)
+          .setColor('Red')
+      ]
+    });
   }
 
-  totalHoras[user] = (totalHoras[user] || 0) + (tiempoMs / 3600000);
-  delete data[user];
-
-  await interaction.reply({
-    embeds: [
-      new EmbedBuilder()
-        .setTitle('🔴 Salida automática AFK')
-        .setDescription(`${interaction.member}\n⏱️ ${tiempoFinal}`)
-        .setColor('Red')
-    ]
-  });
-
-  // 🔥 APROBAR
+  // APROBAR
   if (interaction.isButton() && interaction.customId.startsWith('aprobar_')) {
     await interaction.deferReply({ ephemeral:true });
 
@@ -257,7 +236,7 @@ if (interaction.isButton() && interaction.customId === 'afk_no') {
     return mantenerPanelAbajo();
   }
 
-  // 🔥 RECHAZAR
+  // RECHAZAR
   if (interaction.isButton() && interaction.customId.startsWith('rechazar_')) {
     await interaction.deferReply({ ephemeral:true });
 
@@ -271,7 +250,7 @@ if (interaction.isButton() && interaction.customId === 'afk_no') {
     return mantenerPanelAbajo();
   }
 
-  // 🟢 ENTRADA
+  // ENTRADA
   if (interaction.isButton() && interaction.customId === 'entrada'){
     data[user]=Date.now();
     startAFK(interaction,user);
@@ -290,7 +269,7 @@ if (interaction.isButton() && interaction.customId === 'afk_no') {
     return refreshPanel();
   }
 
-  // 🔴 SALIDA
+  // SALIDA
   if (interaction.isButton() && interaction.customId === 'salida'){
     if (!data[user]) return interaction.reply({ content:'❌ No has hecho entrada', ephemeral:true });
 
@@ -300,13 +279,7 @@ if (interaction.isButton() && interaction.customId === 'afk_no') {
     const horas = Math.floor(minutos / 60);
     const minsRestantes = minutos % 60;
 
-  let tiempoFinal;
-
-if (horas > 0) {
-  tiempoFinal = `${horas}h ${minsRestantes}m`;
-} else {
-  tiempoFinal = `${minsRestantes}m`;
-}
+    let tiempoFinal = horas > 0 ? `${horas}h ${minsRestantes}m` : `${minsRestantes}m`;
 
     totalHoras[user] = (totalHoras[user] || 0) + (tiempoMs / 3600000);
     delete data[user];
@@ -326,7 +299,7 @@ if (horas > 0) {
     return refreshPanel();
   }
 
-  // 📋 REPORTAR (FIX MODAL)
+  // REPORTAR
   if (interaction.isButton() && interaction.customId === 'reportar') {
 
     const modal = new ModalBuilder()
@@ -351,7 +324,7 @@ if (horas > 0) {
     return interaction.showModal(modal);
   }
 
-  // 📋 ENVIAR REPORTE
+  // MODAL
   if (interaction.isModalSubmit() && interaction.customId === 'modal_reporte') {
 
     const razon = interaction.fields.getTextInputValue('razon');
@@ -375,6 +348,8 @@ if (horas > 0) {
 
     return mantenerPanelAbajo();
   }
+
+});
 
 // ================= COMANDOS =================
 client.on('messageCreate', async (msg)=>{
