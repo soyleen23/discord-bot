@@ -372,8 +372,6 @@ if (horas > 0) {
     return mantenerPanelAbajo();
   }
 
-});
-
 // ================= COMANDOS =================
 client.on('messageCreate', async (msg)=>{
   if (msg.content === '!panel'){
