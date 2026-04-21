@@ -148,10 +148,21 @@ function startAFK(interaction,user){
       const dm = await interaction.user.createDM();
 
       const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('seguir').setLabel('Sigo activo').setStyle(ButtonStyle.Success)
-      );
+new ButtonBuilder()
+    .setCustomId('seguir')
+    .setLabel('Sigo activo')
+    .setStyle(ButtonStyle.Success),
 
-      await dm.send({ content:'⚠️ ¿Sigues trabajando?', components:[row] });
+  new ButtonBuilder()
+    .setCustomId('afk_no')
+    .setLabel('No')
+    .setStyle(ButtonStyle.Danger)
+);
+
+      await dm.send({
+         content:'⚠️ ¿Sigues trabajando?',
+          components:[row]
+         });
 
       confirmTimers[user] = setTimeout(()=>autoSalida(interaction,user),60000);
 
@@ -182,8 +193,51 @@ client.on('interactionCreate', async (interaction)=>{
   const user = interaction.user.id;
 
   if (interaction.isButton() && interaction.customId === 'seguir') {
-    return interaction.reply({ content:'✅ Sigues activo', ephemeral:true });
+
+  if (confirmTimers[user]) clearTimeout(confirmTimers[user]);
+  if (timers[user]) clearTimeout(timers[user]);
+
+  data[user] = Date.now();
+  startAFK(interaction, user);
+
+  return interaction.reply({ 
+    content: '✅ Sigues activo', 
+    ephemeral: true 
+  });
+}
+
+    // ❌ BOTÓN NO (SALIDA AUTOMÁTICA)
+if (interaction.isButton() && interaction.customId === 'afk_no') {
+
+  if (!data[user]) {
+    return interaction.reply({ content: '❌ Ya no estás en servicio', ephemeral: true });
   }
+
+  const tiempoMs = Date.now() - data[user];
+
+  const minutos = Math.floor(tiempoMs / 60000);
+  const horas = Math.floor(minutos / 60);
+  const minsRestantes = minutos % 60;
+
+  let tiempoFinal;
+
+  if (horas > 0) {
+    tiempoFinal = `${horas}h ${minsRestantes}m`;
+  } else {
+    tiempoFinal = `${minsRestantes}m`;
+  }
+
+  totalHoras[user] = (totalHoras[user] || 0) + (tiempoMs / 3600000);
+  delete data[user];
+
+  await interaction.reply({
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('🔴 Salida automática AFK')
+        .setDescription(`${interaction.member}\n⏱️ ${tiempoFinal}`)
+        .setColor('Red')
+    ]
+  });
 
   // 🔥 APROBAR
   if (interaction.isButton() && interaction.customId.startsWith('aprobar_')) {
@@ -236,15 +290,28 @@ client.on('interactionCreate', async (interaction)=>{
   if (interaction.isButton() && interaction.customId === 'salida'){
     if (!data[user]) return interaction.reply({ content:'❌ No has hecho entrada', ephemeral:true });
 
-    const horas = (Date.now()-data[user])/3600000;
-    totalHoras[user]=(totalHoras[user]||0)+horas;
+    const tiempoMs = Date.now() - data[user];
+
+    const minutos = Math.floor(tiempoMs / 60000);
+    const horas = Math.floor(minutos / 60);
+    const minsRestantes = minutos % 60;
+
+  let tiempoFinal;
+
+if (horas > 0) {
+  tiempoFinal = `${horas}h ${minsRestantes}m`;
+} else {
+  tiempoFinal = `${minsRestantes}m`;
+}
+
+    totalHoras[user] = (totalHoras[user] || 0) + (tiempoMs / 3600000);
     delete data[user];
 
     await interaction.channel.send({
       embeds:[
         new EmbedBuilder()
         .setTitle('🔴 Se fue de servicio ese vago')
-        .setDescription(`${interaction.member.displayName}\n⏱ ${horas.toFixed(2)} horas`)
+        .setDescription(`${interaction.member.displayName}\n⏱️ ${tiempoFinal}`)
         .setColor('Red')
         .setImage('https://i.imgur.com/14hUy4X.png')
       ]
