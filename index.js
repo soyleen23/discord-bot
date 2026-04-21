@@ -172,8 +172,11 @@ async function autoSalida(interaction,user){
 
   const embed = new EmbedBuilder()
     .setTitle('🚫 Turno Finalizado Automáticamente')
-    .setDescription(`👤 ${interaction.member}\n⚠️ Inactividad detectada`)
-    .setColor('#ff0000');
+    .setDescription(
+      `👤 ${interaction.member}\n\n` +
+      `⚠️ No respondiste.\n📉 Inactividad detectada.\n❌ Tiempo no registrado.`
+    )
+    .setColor('#ff0000')
     .setImage('https://i.imgur.com/JTmf52O.png');
 
   delete data[user];
