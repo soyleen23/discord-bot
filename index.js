@@ -42,6 +42,7 @@ const data = {};
 const totalHoras = {};
 const timers = {};
 const confirmTimers = {};
+const intervals = {};
 
 let panelID = null;
 let panelChannel = null;
@@ -235,6 +236,13 @@ client.on('interactionCreate', async (interaction)=>{
 
   // AFK NO
   if (interaction.isButton() && interaction.customId === 'afk_no') {
+
+    //Detener contador aqui 
+    if (intervals[user]) {
+      clearInterval(intervals[user]);
+      delete intervals[user];
+    }
+
     if (!data[user]) return interaction.reply({ content: '❌ Ya no estás en servicio', ephemeral: true });
 
     const tiempoMs = Date.now() - data[user];
@@ -287,48 +295,79 @@ client.on('interactionCreate', async (interaction)=>{
   }
 
   // ENTRADA
-  if (interaction.isButton() && interaction.customId === 'entrada'){
-    data[user]=Date.now();
-    startAFK(interaction,user);
+  if (interaction.isButton() && interaction.customId === 'entrada') {
 
-    await interaction.channel.send({
-      embeds:[
-        new EmbedBuilder()
-        .setTitle('🟢 Entro en Servicio')
-        .setDescription(`${interaction.member.displayName} inició turno`)
-        .setColor('Green')
-        .setImage('https://i.imgur.com/iy4wcni.png')
-      ]
-    });
+  data[user] = Date.now();
+  startAFK(interaction, user);
 
-    await interaction.deferUpdate();
-    return refreshPanel();
-  }
+  const embed = new EmbedBuilder()
+    .setTitle('🟢 En Servicio')
+    .setDescription(`${interaction.member.displayName}\n⏱️ Tiempo: 0m`)
+    .setColor('Green')
+    .setImage('https://i.imgur.com/iy4wcni.png');
 
-  // SALIDA
-  if (interaction.isButton() && interaction.customId === 'salida'){
-    if (!data[user]) return interaction.reply({ content:'❌ No has hecho entrada', ephemeral:true });
+  const msg = await interaction.channel.send({ embeds: [embed] });
 
+  // 🔥 CONTADOR EN VIVO
+  intervals[user] = setInterval(async () => {
     const tiempoMs = Date.now() - data[user];
 
     const minutos = Math.floor(tiempoMs / 60000);
     const horas = Math.floor(minutos / 60);
     const minsRestantes = minutos % 60;
 
-    let tiempoFinal = horas > 0 ? `${horas}h ${minsRestantes}m` : `${minsRestantes}m`;
+    let tiempoTexto = horas > 0 
+      ? `${horas}h ${minsRestantes}m` 
+      : `${minsRestantes}m`;
 
-    totalHoras[user] = (totalHoras[user] || 0) + (tiempoMs / 3600000);
-    delete data[user];
+    embed.setDescription(`${interaction.member.displayName}\n⏱️ Tiempo: ${tiempoTexto}`);
 
-    await interaction.channel.send({
-      embeds:[
-        new EmbedBuilder()
-        .setTitle('🔴 Se fue de servicio ese vago')
-        .setDescription(`${interaction.member.displayName}\n⏱️ ${tiempoFinal}`)
-        .setColor('Red')
-        .setImage('https://i.imgur.com/14hUy4X.png')
-      ]
-    });
+    try {
+      await msg.edit({ embeds: [embed] });
+    } catch {}
+  }, 60000); // cada 1 minuto
+
+  await interaction.deferUpdate();
+  return refreshPanel();
+}
+
+  // SALIDA
+  if (interaction.isButton() && interaction.customId === 'salida'){
+    //Detener contador
+    if (intervals[user]) {
+      clearInterval(intervals[user]);
+      delete intervals[user];
+    }
+
+    if (!data[user]) return interaction.reply({ content:'❌ No has hecho entrada', ephemeral:true });
+
+    const tiempoMs = Date.now() - data[user];
+
+const minutos = Math.floor(tiempoMs / 60000);
+const horas = Math.floor(minutos / 60);
+const minsRestantes = minutos % 60;
+
+let tiempoFinal = horas > 0 
+  ? `${horas}h ${minsRestantes}m` 
+  : `${minsRestantes}m`;
+
+totalHoras[user] = (totalHoras[user] || 0) + (tiempoMs / 3600000);
+delete data[user];
+
+await interaction.channel.send({
+  embeds: [
+    new EmbedBuilder()
+      .setTitle('🔴 Se fue de servicio ese vago')
+      .setDescription(
+  `👤 ${interaction.member.displayName}
+  
+📊 Tiempo trabajado:
+⏱️ ${tiempoFinal}`
+)
+      .setColor('Red')
+      .setImage('https://i.imgur.com/14hUy4X.png')
+  ]
+});
 
     await interaction.deferUpdate();
     updateLeaderboard(interaction.guild);
