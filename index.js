@@ -46,7 +46,7 @@ const AUTO_CHANNEL_ID = '1495703822339936306';
 const REPORT_CHANNEL_ID = '1495703722343530537';
 const STAFF_ROLE_IDS = ['1495644560666398831'];
 
-const AFK_TIME = 3 * 60 * 60 * 1000;
+const AFK_TIME = 7 * 60 * 60 * 1000;
 
 // 🧠 DATA
 const data = {};
@@ -77,7 +77,7 @@ async function refreshPanel() {
     .setTitle('🍩 Sistema de Ponches')
     .setDescription('Usa los botones para registrar tu jornada')
     .setColor('#ff4bd1')
-    .setImage('https://cdn.discordapp.com/attachments/1099149065138221056/1496464900237824130/IMG_4025.gif');
+    .setImage('https://cdn.discordapp.com/attachments/1495631128139268206/1496470001928896623/IMG_4028.gif');
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('entrada').setLabel('🟢 Entrada').setStyle(ButtonStyle.Success),
