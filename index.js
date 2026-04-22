@@ -1,6 +1,5 @@
 const express = require('express');
 const app = express();
-const cron = require('node-cron');
 
 function formatTiempo(horasDecimal) {
   const totalMin = Math.floor(horasDecimal * 60);
@@ -46,7 +45,6 @@ const STATS_CHANNEL_ID = '1495703920733978694';
 const AUTO_CHANNEL_ID = '1495703822339936306';
 const REPORT_CHANNEL_ID = '1495703722343530537';
 const STAFF_ROLE_IDS = ['1495644560666398831'];
-const EMPLOYEE_CHANNEL_ID = '1496621548461625535'
 
 const AFK_TIME = 7 * 60 * 60 * 1000;
 
@@ -151,60 +149,6 @@ async function updateLeaderboard(guild) {
 
   const msg = await channel.send({ embeds:[embed] });
   statsMessageID = msg.id;
-}
-////////////////////////////EMPLEADOS////////////////////////////////////////////////
-async function updateEmployeeList(guild) {
-  const channel = guild.channels.cache.get(EMPLOYEE_CHANNEL_ID);
-  if (!channel) return;
-
-  const members = await guild.members.fetch();
-
-  let enServicio = 0;
-  let fueraServicio = 0;
-  let lista = '';
-
-  let i = 1;
-  for(const member of members.values()) {
-    if (member.user.bot) continue;
-
-    const trabajando = data[member.user.id];
-
-    if (trabajando) {
-      enServicio++;
-      lista += `${i}. 🟢 ${member}\n`;
-    } else {
-      fueraServicio++;
-      lista += `${i}. 🔴 ${member}\n`;
-    }
-
-    i++;
-  }
-
-  const embed = new EmbedBuilder()
-    .setTitle('📋 Lista de Empleados - Donuts Empleados')
-    .setDescription(
-`**Total:** ${enServicio + fueraServicio} empleados
-🟢 En Servicio: ${enServicio}
-🔴 Fuera de Servicio: ${fueraServicio}
-👥 **Empleados**
-${lista}`
-    )
-    .setColor('#ffd700')
-    .setImage('https://cdn.discordapp.com/attachments/1495631128139268206/1496470001928896623/IMG_4028.gif') // tu gif
-    .setFooter({ text: '🔄 Actualizado automáticamente' });
-
-  try {
-    const messages = await channel.messages.fetch({ limit: 10 });
-    const botMsg = messages.find(m => m.author.id === client.user.id && m.embeds.length);
-
-    if (botMsg) {
-      await botMsg.edit({ embeds: [embed] });
-    } else {
-      await channel.send({ embeds: [embed] });
-    }
-  } catch {
-    await channel.send({ embeds: [embed] });
-  }
 }
 
 // ================= AFK =================
@@ -367,9 +311,6 @@ client.on('interactionCreate', async (interaction)=>{
   data[user] = Date.now();
   startAFK(interaction, user);
 
-  //actualiza lista //
-  updateEmployeeList(interaction.guild);
-
   const embed = new EmbedBuilder()
     .setTitle('🟢 En Servicio')
     .setDescription(`${interaction.member.displayName}\n⏱️ Tiempo: 0m`)
@@ -403,7 +344,6 @@ client.on('interactionCreate', async (interaction)=>{
 
   // SALIDA
   if (interaction.isButton() && interaction.customId === 'salida'){
-
     //Detener contador
     if (intervals[user]) {
       clearInterval(intervals[user]);
@@ -424,9 +364,6 @@ let tiempoFinal = horas > 0
 
 totalHoras[user] = (totalHoras[user] || 0) + (tiempoMs / 3600000);
 delete data[user];
-
-//actualiza lista //
-  updateEmployeeList(interaction.guild);
 
 await interaction.channel.send({
   embeds: [
@@ -507,39 +444,10 @@ client.on('messageCreate', async (msg)=>{
     refreshPanel();
   }
 
-  if (msg.content === '!empleados') {
-  updateEmployeeList(msg.guild);
-}
-
   if (msg.content === '!inactividad'){
     inactivityChannel = msg.channel;
     refreshInactivityPanel();
   }
-});
-
-// 🔥 CUANDO EL BOT PRENDE
-client.once('ready', () => {
-  console.log('🟢 Bot listo');
-
-  // 👥 Lista de empleados (canal separado)
-  setInterval(() => {
-    for (let guild of client.guilds.cache.values()) {
-      updateEmployeeList(guild);
-    }
-  }, 60000);
-
-  // 🏆 Reset ranking semanal
-  cron.schedule('0 0 * * 1', async () => {
-    console.log('♻️ Reiniciando ranking semanal');
-
-    for (let user in totalHoras) {
-      totalHoras[user] = 0;
-    }
-
-    for (let guild of client.guilds.cache.values()) {
-      updateLeaderboard(guild);
-    }
-  });
 });
 
 client.login(process.env.TOKEN);
