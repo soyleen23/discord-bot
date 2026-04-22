@@ -45,6 +45,7 @@ const STATS_CHANNEL_ID = '1495703920733978694';
 const AUTO_CHANNEL_ID = '1495703822339936306';
 const REPORT_CHANNEL_ID = '1495703722343530537';
 const STAFF_ROLE_IDS = ['1495644560666398831'];
+const EMPLOYEE_CHANNEL_ID = '1496621548461625535';
 
 const AFK_TIME = 7 * 60 * 60 * 1000;
 
@@ -61,6 +62,7 @@ let statsMessageID = null;
 
 let inactivityPanelID = null;
 let inactivityChannel = null;
+let employeeMessageID = null; // 🔥 importante
 
 // ================= PANEL PONCHE =================
 async function refreshPanel() {
@@ -149,6 +151,60 @@ async function updateLeaderboard(guild) {
 
   const msg = await channel.send({ embeds:[embed] });
   statsMessageID = msg.id;
+}
+////////////////////empleados/////////////////////////////////
+
+async function updateEmployeePanel(guild) {
+  const channel = guild.channels.cache.get(EMPLOYEE_CHANNEL_ID);
+  if (!channel) return;
+
+  const members = await guild.members.fetch();
+
+  let enServicio = 0;
+  let fueraServicio = 0;
+  let lista = '';
+
+  let i = 1;
+  for (const member of members.values()) {
+    if (member.user.bot) continue;
+
+    const trabajando = data[member.user.id];
+
+    if (trabajando) {
+      enServicio++;
+      lista += `${i}. 🟢 ${member}\n`;
+    } else {
+      fueraServicio++;
+      lista += `${i}. 🔴 ${member}\n`;
+    }
+
+    i++;
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle('📋 Lista de Empleados - Donuts Empleados')
+    .setDescription(
+      `**Total:** ${enServicio + fueraServicio} empleados\n\n` +
+      `🟢 En Servicio: ${enServicio}\n` +
+      `🔴 Fuera de Servicio: ${fueraServicio}\n\n` +
+      `👥 **Empleados**\n${lista}`
+    )
+    .setColor('#ffd700')
+    .setImage('https://cdn.discordapp.com/attachments/1495631128139268206/1496470001928896623/IMG_4028.gif')
+    .setFooter({ 
+      text: `🔄 Actualizado automáticamente • ${new Date().toLocaleString()}`
+    });
+
+  try {
+    if (employeeMessageID) {
+      const old = await channel.messages.fetch(employeeMessageID);
+      await old.edit({ embeds: [embed] });
+      return;
+    }
+  } catch {}
+
+  const msg = await channel.send({ embeds: [embed] });
+  employeeMessageID = msg.id;
 }
 
 // ================= AFK =================
@@ -311,6 +367,9 @@ client.on('interactionCreate', async (interaction)=>{
   data[user] = Date.now();
   startAFK(interaction, user);
 
+//actualiza lista //
+  updateEmployeePanel(interaction.guild);
+
   const embed = new EmbedBuilder()
     .setTitle('🟢 En Servicio')
     .setDescription(`${interaction.member.displayName}\n⏱️ Tiempo: 0m`)
@@ -364,6 +423,8 @@ let tiempoFinal = horas > 0
 
 totalHoras[user] = (totalHoras[user] || 0) + (tiempoMs / 3600000);
 delete data[user];
+//actualiza lista //
+  updateEmployeePanel(interaction.guild);
 
 await interaction.channel.send({
   embeds: [
@@ -448,6 +509,22 @@ client.on('messageCreate', async (msg)=>{
     inactivityChannel = msg.channel;
     refreshInactivityPanel();
   }
+
+  // 🔥 OPCIONAL PARA PROBAR
+  if (msg.content === '!empleados') {
+    updateEmployeePanel(msg.guild);
+  }
+});
+
+// 🔥 CUANDO EL BOT PRENDE
+client.once('ready', () => {
+  console.log('🟢 Bot listo');
+
+  setInterval(() => {
+    for (let guild of client.guilds.cache.values()) {
+      updateEmployeePanel(guild);
+    }
+  }, 60000);
 });
 
 client.login(process.env.TOKEN);
