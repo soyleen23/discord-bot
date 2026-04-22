@@ -77,7 +77,7 @@ async function refreshPanel() {
     .setTitle('🍩 Sistema de Ponches')
     .setDescription('Usa los botones para registrar tu jornada')
     .setColor('#ff4bd1')
-    .setImage('https://i.imgur.com/FTWRO4r.png');
+    .setImage('https://i.imgur.com/0o1tqKk.gif');
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('entrada').setLabel('🟢 Entrada').setStyle(ButtonStyle.Success),
