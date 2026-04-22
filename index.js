@@ -35,7 +35,7 @@ const AUTO_CHANNEL_ID = '1495703822339936306';
 const REPORT_CHANNEL_ID = '1495703722343530537';
 const STAFF_ROLE_IDS = ['1495644560666398831'];
 
-const AFK_TIME = 60 * 60 * 1000;
+const AFK_TIME = 3 * 60 * 60 * 1000;
 
 // 🧠 DATA
 const data = {};
@@ -144,25 +144,58 @@ function startAFK(interaction,user){
   if (timers[user]) clearTimeout(timers[user]);
 
   timers[user] = setTimeout(async ()=>{
-    try{
-      const dm = await interaction.user.createDM();
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('seguir').setLabel('Sigo activo').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('afk_no').setLabel('No').setStyle(ButtonStyle.Danger)
+  );
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('seguir').setLabel('Sigo activo').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('afk_no').setLabel('No').setStyle(ButtonStyle.Danger)
-      );
+  let tiempoRestante = 180; // 3 minutos en segundos
 
-      await dm.send({
-        content:'⚠️ ¿Sigues trabajando?',
-        components:[row]
-      });
+  let msg;
 
-      confirmTimers[user] = setTimeout(()=>autoSalida(interaction,user),60000);
+  try {
+    const dm = await interaction.user.createDM();
 
-    }catch{
-      autoSalida(interaction,user);
+    msg = await dm.send({
+      content: `⚠️ ¿Sigues trabajando?\n⏳ Tiempo restante: 03:00`,
+      components: [row]
+    });
+
+  } catch {
+    msg = await interaction.channel.send({
+      content: `⚠️ ${interaction.member} ¿Sigues trabajando?\n⏳ Tiempo restante: 03:00`,
+      components: [row]
+    });
+  }
+
+  // 🔥 CONTADOR
+  const interval = setInterval(async () => {
+    tiempoRestante--;
+
+    const min = Math.floor(tiempoRestante / 60);
+    const sec = tiempoRestante % 60;
+
+    const tiempoTexto = `${String(min).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+
+    if (tiempoRestante <= 0) {
+      clearInterval(interval);
+      return;
     }
-  },AFK_TIME);
+
+    try {
+      await msg.edit({
+        content: `⚠️ ¿Sigues trabajando?\n⏳ Tiempo restante: ${tiempoTexto}`,
+        components: [row]
+      });
+    } catch {}
+  }, 1000);
+
+  confirmTimers[user] = setTimeout(()=>{
+    clearInterval(interval);
+    autoSalida(interaction,user);
+  },180000);
+
+},AFK_TIME);
 }
 
 async function autoSalida(interaction,user){
