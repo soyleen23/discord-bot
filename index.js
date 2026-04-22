@@ -1,6 +1,17 @@
 const express = require('express');
 const app = express();
 
+function formatTiempo(horasDecimal) {
+  const totalMin = Math.floor(horasDecimal * 60);
+  const horas = Math.floor(totalMin / 60);
+  const minutos = totalMin % 60;
+
+  if (horas > 0) {
+    return `${horas}h ${minutos}m`;
+  } else {
+    return `${minutos}m`;
+  }
+}
 app.get('/', (req, res) => {
   res.send('Bot activo');
 });
@@ -120,7 +131,7 @@ async function updateLeaderboard(guild) {
   ranking.forEach((u,i)=>{
     const m = guild.members.cache.get(u[0]);
     const medal = ['🥇','🥈','🥉'][i] || '🔹';
-    texto += `${medal} ${m?.displayName || 'Usuario'} — ${u[1].toFixed(2)}h\n`;
+    texto += `${medal} ${m?.displayName || 'Usuario'} | ${formatTiempo(u[1])}\n`;
   });
 
   const embed = new EmbedBuilder()
@@ -360,7 +371,7 @@ await interaction.channel.send({
       .setTitle('🔴 Se fue de servicio ese vago')
       .setDescription(
   `👤 ${interaction.member.displayName}
-  
+
 📊 Tiempo trabajado:
 ⏱️ ${tiempoFinal}`
 )
