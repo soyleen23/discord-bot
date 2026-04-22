@@ -77,7 +77,7 @@ async function refreshPanel() {
     .setTitle('🍩 Sistema de Ponches')
     .setDescription('Usa los botones para registrar tu jornada')
     .setColor('#ff4bd1')
-    .setImage('https://cdn.discordapp.com/attachments/1099149065138221056/1496463061110755469/IMG_4027.gif');
+    .setImage('https://cdn.discordapp.com/attachments/1099149065138221056/1496464900237824130/IMG_4025.gif');
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('entrada').setLabel('🟢 Entrada').setStyle(ButtonStyle.Success),
