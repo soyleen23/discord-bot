@@ -1,453 +1,290 @@
-const express = require('express');
-const app = express();
-
-function formatTiempo(horasDecimal) {
-  const totalMin = Math.floor(horasDecimal * 60);
-  const horas = Math.floor(totalMin / 60);
-  const minutos = totalMin % 60;
-
-  if (horas > 0) {
-    return `${horas}h ${minutos}m`;
-  } else {
-    return `${minutos}m`;
-  }
-}
-app.get('/', (req, res) => {
-  res.send('Bot activo');
-});
-
-app.listen(3000, () => {
-  console.log('Web funcionando');
-});
-
 const { 
-  Client, 
-  GatewayIntentBits, 
-  ActionRowBuilder, 
-  ButtonBuilder, 
-  ButtonStyle, 
-  EmbedBuilder, 
-  ModalBuilder, 
-  TextInputBuilder, 
-  TextInputStyle
+  Client, GatewayIntentBits, EmbedBuilder, 
+  ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  ModalBuilder, TextInputBuilder, TextInputStyle
 } = require('discord.js');
+
+const fs = require('fs');
+const cron = require('node-cron');
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent
   ]
 });
 
-// 🔧 CONFIG
-const STATS_CHANNEL_ID = '1495703920733978694';
-const AUTO_CHANNEL_ID = '1495703822339936306';
-const REPORT_CHANNEL_ID = '1495703722343530537';
-const STAFF_ROLE_IDS = ['1495644560666398831'];
+const CONFIG = {
+  PANEL_CHANNEL: '1495735101135392888',
+  EMPLOYEE_CHANNEL: '1496621548461625535',
+  RANK_CHANNEL: '1495703920733978694',
+  REPORT_CHANNEL: '1495703722343530537',
+  AUTO_CHANNEL: '1495703822339936306',
+  STAFF_ROLE: '1495644560666398831'
+};
 
-const AFK_TIME = 7 * 60 * 60 * 1000;
+let db = fs.existsSync('data.json') ? JSON.parse(fs.readFileSync('data.json')) : {};
+function save(){ fs.writeFileSync('data.json', JSON.stringify(db,null,2)); }
 
-// 🧠 DATA
-const data = {};
-const totalHoras = {};
-const timers = {};
-const confirmTimers = {};
-const intervals = {};
+// ================= TIEMPO =================
+function format(ms){
+  const m = Math.floor(ms/60000);
+  const h = Math.floor(m/60);
+  return h>0 ? `${h}h ${m%60}m` : `${m}m`;
+}
 
-let panelID = null;
-let panelChannel = null;
-let statsMessageID = null;
+// ================= PANEL =================
+let panelID;
 
-let inactivityPanelID = null;
-let inactivityChannel = null;
+async function updatePanel(guild){
+  const ch = guild.channels.cache.get(CONFIG.PANEL_CHANNEL);
+  if(!ch) return;
 
-// ================= PANEL PONCHE =================
-async function refreshPanel() {
-  if (!panelChannel) return;
-
-  try {
-    if (panelID) {
-      const old = await panelChannel.messages.fetch(panelID);
+  try{
+    if(panelID){
+      const old = await ch.messages.fetch(panelID);
       await old.delete();
     }
-  } catch {}
+  }catch{}
 
   const embed = new EmbedBuilder()
-    .setTitle('🍩 Sistema de Ponches')
-    .setDescription('Usa los botones para registrar tu jornada')
-    .setColor('#ff4bd1')
-    .setImage('https://cdn.discordapp.com/attachments/1495631128139268206/1496470001928896623/IMG_4028.gif');
+    .setTitle('🍩 Sistema de Ponche')
+    .setDescription('🟢 Entrada\n🔴 Salida\n\n⏱️ Tu tiempo se actualiza automáticamente')
+    .setImage('https://cdn.discordapp.com/attachments/1495631128139268206/1496470001928896623/IMG_4028.gif')
+    .setColor('#ff4bd1');
 
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('entrada').setLabel('🟢 Entrada').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId('salida').setLabel('🔴 Salida').setStyle(ButtonStyle.Danger),
-    new ButtonBuilder().setCustomId('horas').setLabel('⏱ Horas').setStyle(ButtonStyle.Primary)
+    new ButtonBuilder().setCustomId('in').setLabel('Entrada').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('out').setLabel('Salida').setStyle(ButtonStyle.Danger)
   );
 
-  const msg = await panelChannel.send({ embeds: [embed], components: [row] });
+  const msg = await ch.send({embeds:[embed],components:[row]});
   panelID = msg.id;
 }
 
-// ================= PANEL INACTIVIDAD =================
-async function refreshInactivityPanel() {
-  if (!inactivityChannel) return;
+// ================= EMPLEADOS =================
+let empID;
 
-  const embed = new EmbedBuilder()
-    .setTitle('📋 Sistema de Inactividad')
-    .setDescription('Presiona el botón para reportar tu ausencia')
-    .setColor('#ffaa00')
-    .setImage('https://i.imgur.com/yNtX66r.jpg');
+async function updateEmployees(guild){
+  const ch = guild.channels.cache.get(CONFIG.EMPLOYEE_CHANNEL);
+  if(!ch) return;
 
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('reportar').setLabel('📩 Reportar Inactividad').setStyle(ButtonStyle.Primary)
-  );
+  const members = await guild.members.fetch();
 
-  const msg = await inactivityChannel.send({ embeds: [embed], components: [row] });
-  inactivityPanelID = msg.id;
-}
+  let en=0, off=0, txt='';
 
-// 🔥 MANTENER PANEL ABAJO
-async function mantenerPanelAbajo() {
-  if (!inactivityChannel || !inactivityPanelID) return;
+  members.forEach(m=>{
+    if(m.user.bot) return;
 
-  try {
-    const msg = await inactivityChannel.messages.fetch(inactivityPanelID);
-    await msg.delete();
-  } catch {}
+    const active = db[m.id]?.active;
 
-  inactivityPanelID = null;
-  refreshInactivityPanel();
-}
-
-// ================= LEADERBOARD =================
-async function updateLeaderboard(guild) {
-  const channel = guild.channels.cache.get(STATS_CHANNEL_ID);
-  if (!channel) return;
-
-  const ranking = Object.entries(totalHoras).sort((a,b)=>b[1]-a[1]).slice(0,10);
-
-  let texto = '';
-  ranking.forEach((u,i)=>{
-    const m = guild.members.cache.get(u[0]);
-    const medal = ['🥇','🥈','🥉'][i] || '🔹';
-    texto += `${medal} ${m?.displayName || 'Usuario'} | ${formatTiempo(u[1])}\n`;
+    if(active){
+      en++;
+      txt+=`🟢 ${m.displayName}\n`;
+    }else{
+      off++;
+      txt+=`🔴 ${m.displayName}\n`;
+    }
   });
 
   const embed = new EmbedBuilder()
-    .setTitle('🏆 Ranking de Empleados')
-    .setDescription(texto + `\n👥 Total empleados: ${Object.keys(totalHoras).length}`)
+    .setTitle('📋 Lista de Empleados')
+    .setDescription(`👥 Total: ${en+off}\n🟢 ${en} | 🔴 ${off}\n\n${txt}`)
+    .setImage('https://cdn.discordapp.com/attachments/1495631128139268206/1496470001928896623/IMG_4028.gif')
     .setColor('#ffd700')
-    .setImage('https://i.imgur.com/FTWRO4r.png');
+    .setFooter({text:'Actualizado en vivo'});
 
-  try {
-    if (statsMessageID) {
-      const old = await channel.messages.fetch(statsMessageID);
-      await old.delete();
+  try{
+    if(empID){
+      const old = await ch.messages.fetch(empID);
+      return old.edit({embeds:[embed]});
     }
-  } catch {}
+  }catch{}
 
-  const msg = await channel.send({ embeds:[embed] });
-  statsMessageID = msg.id;
+  const msg = await ch.send({embeds:[embed]});
+  empID = msg.id;
+}
+
+// ================= RANK =================
+let rankID;
+
+async function updateRank(guild){
+  const ch = guild.channels.cache.get(CONFIG.RANK_CHANNEL);
+  if(!ch) return;
+
+  const sorted = Object.entries(db)
+    .map(([id,v])=>[id,v.total||0])
+    .sort((a,b)=>b[1]-a[1]);
+
+  let txt='';
+
+  sorted.slice(0,10).forEach((u,i)=>{
+    const medal=['🥇','🥈','🥉'][i]||'🔹';
+    const m = guild.members.cache.get(u[0]);
+    txt+=`${medal} ${m?.displayName} | ${format(u[1])}\n`;
+  });
+
+  const embed = new EmbedBuilder()
+    .setTitle('🏆 Ranking Semanal')
+    .setDescription(txt)
+    .setColor('#ffd700');
+
+  try{
+    if(rankID){
+      const old = await ch.messages.fetch(rankID);
+      return old.edit({embeds:[embed]});
+    }
+  }catch{}
+
+  const msg = await ch.send({embeds:[embed]});
+  rankID = msg.id;
 }
 
 // ================= AFK =================
-function startAFK(interaction,user){
-  if (timers[user]) clearTimeout(timers[user]);
+function startAFK(user,interaction){
+  setTimeout(async()=>{
+    if(!db[user]?.active) return;
 
-  timers[user] = setTimeout(async ()=>{
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('seguir').setLabel('Sigo activo').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId('afk_no').setLabel('No').setStyle(ButtonStyle.Danger)
-  );
+    let t=180;
 
-  let tiempoRestante = 180; // 3 minutos en segundos
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('stay').setLabel('Sigo activo').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('leave').setLabel('Salir').setStyle(ButtonStyle.Danger)
+    );
 
-  let msg;
+    const dm = await interaction.user.send(`⚠️ ¿Sigues trabajando?\n⏳ ${t}s`);
+    
+    const int = setInterval(()=>{
+      t--;
+      if(t<=0){
+        clearInterval(int);
+        delete db[user].active;
+        save();
 
-  try {
-    const dm = await interaction.user.createDM();
+        interaction.guild.channels.cache.get(CONFIG.AUTO_CHANNEL)
+        .send(`🚫 Auto salida: ${interaction.member}`);
+      }
+      dm.edit(`⚠️ ¿Sigues trabajando?\n⏳ ${t}s`);
+    },1000);
 
-    msg = await dm.send({
-      content: `⚠️ ¿Sigues trabajando?\n⏳ Tiempo restante: 03:00`,
-      components: [row]
-    });
-
-  } catch {
-    msg = await interaction.channel.send({
-      content: `⚠️ ${interaction.member} ¿Sigues trabajando?\n⏳ Tiempo restante: 03:00`,
-      components: [row]
-    });
-  }
-
-  // 🔥 CONTADOR
-  const interval = setInterval(async () => {
-    tiempoRestante--;
-
-    const min = Math.floor(tiempoRestante / 60);
-    const sec = tiempoRestante % 60;
-
-    const tiempoTexto = `${String(min).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
-
-    if (tiempoRestante <= 0) {
-      clearInterval(interval);
-      return;
-    }
-
-    try {
-      await msg.edit({
-        content: `⚠️ ¿Sigues trabajando?\n⏳ Tiempo restante: ${tiempoTexto}`,
-        components: [row]
-      });
-    } catch {}
-  }, 1000);
-
-  confirmTimers[user] = setTimeout(()=>{
-    clearInterval(interval);
-    autoSalida(interaction,user);
-  },180000);
-
-},AFK_TIME);
-}
-
-async function autoSalida(interaction,user){
-  if (!data[user]) return;
-
-  const ch = interaction.guild.channels.cache.get(AUTO_CHANNEL_ID);
-
-  const embed = new EmbedBuilder()
-    .setTitle('🚫 Turno Finalizado Automáticamente')
-    .setDescription(
-      `👤 ${interaction.member}\n\n` +
-      `⚠️ No respondiste.\n📉 Inactividad detectada.\n❌ Tiempo no registrado.`
-    )
-    .setColor('#ff0000')
-    .setImage('https://i.imgur.com/JTmf52O.png');
-
-  delete data[user];
-
-  if (ch) ch.send({ embeds:[embed] });
+  },5*60*60*1000);
 }
 
 // ================= INTERACCIONES =================
-client.on('interactionCreate', async (interaction)=>{
+client.on('interactionCreate', async i=>{
+  if(!i.isButton()) return;
 
-  const user = interaction.user.id;
+  const id=i.user.id;
+  if(!db[id]) db[id]={total:0};
 
-  // SEGUIR
-  if (interaction.isButton() && interaction.customId === 'seguir') {
-    if (confirmTimers[user]) clearTimeout(confirmTimers[user]);
-    if (timers[user]) clearTimeout(timers[user]);
-
-    data[user] = Date.now();
-    startAFK(interaction, user);
-
-    return interaction.reply({ content: '✅ Sigues activo', ephemeral: true });
+  if(i.customId==='in'){
+    db[id].active=Date.now();
+    save();
+    startAFK(id,i);
+    updateEmployees(i.guild);
+    return i.reply({content:'🟢 Entrada registrada',ephemeral:true});
   }
 
-  // AFK NO
-  if (interaction.isButton() && interaction.customId === 'afk_no') {
+  if(i.customId==='out'){
+    if(!db[id].active) return;
 
-    //Detener contador aqui 
-    if (intervals[user]) {
-      clearInterval(intervals[user]);
-      delete intervals[user];
-    }
+    const t=Date.now()-db[id].active;
+    db[id].total+=t;
+    delete db[id].active;
 
-    if (!data[user]) return interaction.reply({ content: '❌ Ya no estás en servicio', ephemeral: true });
+    save();
+    updateEmployees(i.guild);
+    updateRank(i.guild);
 
-    const tiempoMs = Date.now() - data[user];
-
-    const minutos = Math.floor(tiempoMs / 60000);
-    const horas = Math.floor(minutos / 60);
-    const minsRestantes = minutos % 60;
-
-    let tiempoFinal = horas > 0 ? `${horas}h ${minsRestantes}m` : `${minsRestantes}m`;
-
-    totalHoras[user] = (totalHoras[user] || 0) + (tiempoMs / 3600000);
-    delete data[user];
-
-    return interaction.reply({
-      embeds: [
-        new EmbedBuilder()
-          .setTitle('🔴 Salida automática AFK')
-          .setDescription(`${interaction.member}\n⏱️ ${tiempoFinal}`)
-          .setColor('Red')
-      ]
-    });
+    return i.reply({content:`🔴 Salida (${format(t)})`,ephemeral:true});
   }
 
-  // APROBAR
-  if (interaction.isButton() && interaction.customId.startsWith('aprobar_')) {
-    await interaction.deferReply({ ephemeral:true });
-
-    if (!STAFF_ROLE_IDS.some(id => interaction.member.roles.cache.has(id))) {
-      return interaction.editReply({ content:'❌ No tienes permiso' });
-    }
-
-    await interaction.message.edit({ components: [] });
-    await interaction.editReply({ content:'✅ Reporte aprobado' });
-
-    return mantenerPanelAbajo();
+  if(i.customId==='stay'){
+    db[id].active=Date.now();
+    save();
+    return i.reply({content:'✅ Sigues activo',ephemeral:true});
   }
 
-  // RECHAZAR
-  if (interaction.isButton() && interaction.customId.startsWith('rechazar_')) {
-    await interaction.deferReply({ ephemeral:true });
-
-    if (!STAFF_ROLE_IDS.some(id => interaction.member.roles.cache.has(id))) {
-      return interaction.editReply({ content:'❌ No tienes permiso' });
-    }
-
-    await interaction.message.edit({ components: [] });
-    await interaction.editReply({ content:'❌ Reporte rechazado' });
-
-    return mantenerPanelAbajo();
+  if(i.customId==='leave'){
+    delete db[id].active;
+    save();
+    return i.reply({content:'🚫 Saliste',ephemeral:true});
   }
-
-  // ENTRADA
-  if (interaction.isButton() && interaction.customId === 'entrada') {
-
-  data[user] = Date.now();
-  startAFK(interaction, user);
-
-  const embed = new EmbedBuilder()
-    .setTitle('🟢 En Servicio')
-    .setDescription(`${interaction.member.displayName}\n⏱️ Tiempo: 0m`)
-    .setColor('Green')
-    .setImage('https://i.imgur.com/iy4wcni.png');
-
-  const msg = await interaction.channel.send({ embeds: [embed] });
-
-  // 🔥 CONTADOR EN VIVO
-  intervals[user] = setInterval(async () => {
-    const tiempoMs = Date.now() - data[user];
-
-    const minutos = Math.floor(tiempoMs / 60000);
-    const horas = Math.floor(minutos / 60);
-    const minsRestantes = minutos % 60;
-
-    let tiempoTexto = horas > 0 
-      ? `${horas}h ${minsRestantes}m` 
-      : `${minsRestantes}m`;
-
-    embed.setDescription(`${interaction.member.displayName}\n⏱️ Tiempo: ${tiempoTexto}`);
-
-    try {
-      await msg.edit({ embeds: [embed] });
-    } catch {}
-  }, 60000); // cada 1 minuto
-
-  await interaction.deferUpdate();
-  return refreshPanel();
-}
-
-  // SALIDA
-  if (interaction.isButton() && interaction.customId === 'salida'){
-    //Detener contador
-    if (intervals[user]) {
-      clearInterval(intervals[user]);
-      delete intervals[user];
-    }
-
-    if (!data[user]) return interaction.reply({ content:'❌ No has hecho entrada', ephemeral:true });
-
-    const tiempoMs = Date.now() - data[user];
-
-const minutos = Math.floor(tiempoMs / 60000);
-const horas = Math.floor(minutos / 60);
-const minsRestantes = minutos % 60;
-
-let tiempoFinal = horas > 0 
-  ? `${horas}h ${minsRestantes}m` 
-  : `${minsRestantes}m`;
-
-totalHoras[user] = (totalHoras[user] || 0) + (tiempoMs / 3600000);
-delete data[user];
-
-await interaction.channel.send({
-  embeds: [
-    new EmbedBuilder()
-      .setTitle('🔴 Se fue de servicio ese vago')
-      .setDescription(
-  `👤 ${interaction.member.displayName}
-
-📊 Tiempo trabajado:
-⏱️ ${tiempoFinal}`
-)
-      .setColor('Red')
-      .setImage('https://i.imgur.com/14hUy4X.png')
-  ]
 });
 
-    await interaction.deferUpdate();
-    updateLeaderboard(interaction.guild);
-    return refreshPanel();
-  }
-
-  // REPORTAR
-  if (interaction.isButton() && interaction.customId === 'reportar') {
-
+// ================= REPORTES =================
+client.on('interactionCreate', async i=>{
+  if(i.customId==='report'){
     const modal = new ModalBuilder()
-      .setCustomId('modal_reporte')
-      .setTitle('Reportar Inactividad');
-
-    const razon = new TextInputBuilder()
-      .setCustomId('razon')
-      .setLabel('Razón')
-      .setStyle(TextInputStyle.Paragraph);
-
-    const tiempo = new TextInputBuilder()
-      .setCustomId('tiempo')
-      .setLabel('Duración')
-      .setStyle(TextInputStyle.Short);
+      .setCustomId('rep')
+      .setTitle('Reporte de Inactividad');
 
     modal.addComponents(
-      new ActionRowBuilder().addComponents(razon),
-      new ActionRowBuilder().addComponents(tiempo)
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('txt')
+          .setLabel('Motivo')
+          .setStyle(TextInputStyle.Paragraph)
+      )
     );
 
-    return interaction.showModal(modal);
+    return i.showModal(modal);
   }
 
-  // MODAL
-  if (interaction.isModalSubmit() && interaction.customId === 'modal_reporte') {
+  if(i.isModalSubmit()){
+    const txt = i.fields.getTextInputValue('txt');
 
-    const razon = interaction.fields.getTextInputValue('razon');
-    const tiempo = interaction.fields.getTextInputValue('tiempo');
+    const ch = i.guild.channels.cache.get(CONFIG.REPORT_CHANNEL);
 
-    const ch = interaction.guild.channels.cache.get(REPORT_CHANNEL_ID);
-
-    const embed = new EmbedBuilder()
-      .setTitle('📨 Nuevo Reporte')
-      .setDescription(`👤 ${interaction.member}\n⏱ ${tiempo}\n📝 ${razon}`)
-      .setColor('#ffaa00');
-
-    const botones = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`aprobar_${user}`).setLabel('Aprobar').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`rechazar_${user}`).setLabel('Rechazar').setStyle(ButtonStyle.Danger)
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`ok_${i.user.id}`).setLabel('Aprobar').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`no_${i.user.id}`).setLabel('Rechazar').setStyle(ButtonStyle.Danger)
     );
 
-    if (ch) ch.send({ embeds:[embed], components:[botones] });
+    ch.send({
+      embeds:[
+        new EmbedBuilder()
+        .setTitle('📋 Nuevo Reporte')
+        .setDescription(`${i.user}\n\n${txt}`)
+        .setColor('#ffaa00')
+      ],
+      components:[row]
+    });
 
-    await interaction.reply({ content:'✅ Reporte enviado', ephemeral:true });
-
-    return mantenerPanelAbajo();
+    i.reply({content:'Reporte enviado',ephemeral:true});
   }
 
+  if(i.customId?.startsWith('ok_') || i.customId?.startsWith('no_')){
+    if(!i.member.roles.cache.has(CONFIG.STAFF_ROLE)) return;
+
+    i.update({
+      embeds:[
+        new EmbedBuilder()
+        .setTitle(i.customId.startsWith('ok_') ? '✅ APROBADO' : '❌ RECHAZADO')
+        .setDescription(`Procesado por ${i.user}`)
+      ],
+      components:[]
+    });
+  }
 });
 
-// ================= COMANDOS =================
-client.on('messageCreate', async (msg)=>{
-  if (msg.content === '!panel'){
-    panelChannel = msg.channel;
-    refreshPanel();
-  }
+// ================= RESET =================
+cron.schedule('0 0 * * 1', ()=>{
+  for(let u in db) db[u].total=0;
+  save();
+});
 
-  if (msg.content === '!inactividad'){
-    inactivityChannel = msg.channel;
-    refreshInactivityPanel();
-  }
+// ================= READY =================
+client.once('ready',()=>{
+  console.log('🔥 BOT PRO LISTO');
+
+  client.guilds.cache.forEach(g=>{
+    updatePanel(g);
+    updateEmployees(g);
+    updateRank(g);
+  });
 });
 
 client.login(process.env.TOKEN);
