@@ -54,6 +54,8 @@ const totalHoras = {};
 const timers = {};
 const confirmTimers = {};
 const intervals = {};
+const afkMessages = {};
+const afkIntervals = {};
 
 let panelID = null;
 let panelChannel = null;
@@ -152,15 +154,15 @@ async function updateLeaderboard(guild) {
 }
 
 // ================= AFK =================
-function startAFK(interaction,user){
+function startAFK(interaction, user) {
 
-  if (!data[user]) return;
+  // limpiar timer viejo
+  if (timers[user]) {
+    clearTimeout(timers[user]);
+    delete timers[user];
+  }
 
-  if (timers[user]) clearTimeout(timers[user]);
-
-  timers[user] = setTimeout(async ()=>{
-
-    if (!data[user]) return;
+  timers[user] = setTimeout(async () => {
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -176,22 +178,19 @@ function startAFK(interaction,user){
 
     let tiempoRestante = 180;
 
-    let msg;
+    const dm = await interaction.user.createDM();
 
-    try {
+    const msg = await dm.send({
+      content:
+ `⚠️ ¿Sigues trabajando?
+ ⏳ Tiempo restante: 03:00`,
+      components: [row]
+    });
 
-      const dm = await interaction.user.createDM();
+    afkMessages[user] = msg;
 
-      msg = await dm.send({
-        content: `⚠️ ¿Sigues trabajando?\n⏳ Tiempo restante: 03:00`,
-        components: [row]
-      });
-
-    } catch {
-      return;
-    }
-
-    const interval = setInterval(async () => {
+    // CONTADOR VISUAL
+    afkIntervals[user] = setInterval(async () => {
 
       tiempoRestante--;
 
@@ -199,39 +198,41 @@ function startAFK(interaction,user){
       const sec = tiempoRestante % 60;
 
       const tiempoTexto =
-        `${String(min).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+ `${String(min).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
 
+      // LLEGÓ A 0
       if (tiempoRestante <= 0) {
-        clearInterval(interval);
+
+        clearInterval(afkIntervals[user]);
+        delete afkIntervals[user];
+
+        try {
+          await msg.edit({
+            content: '⛔ Tiempo agotado',
+            components: []
+          });
+        } catch {}
+
+        // AUTO SALIDA
+        if (data[user]) {
+          await autoSalida(interaction, user);
+        }
+
         return;
       }
 
       try {
-
         await msg.edit({
-          content: `⚠️ ¿Sigues trabajando?\n⏳ Tiempo restante: ${tiempoTexto}`,
+          content:
+ `⚠️ ¿Sigues trabajando?
+ ⏳ Tiempo restante: ${tiempoTexto}`,
           components: [row]
         });
-
       } catch {}
 
-    },1000);
+    }, 1000);
 
-    confirmTimers[user] = setTimeout(async ()=>{
-
-      clearInterval(interval);
-
-      try {
-        await msg.edit({
-          components:[]
-        });
-      } catch {}
-
-      autoSalida(interaction,user);
-
-    },180000);
-
-  },AFK_TIME);
+  }, AFK_TIME);
 }
 
 async function autoSalida(interaction,user){
@@ -261,64 +262,66 @@ client.on('interactionCreate', async (interaction)=>{
   // SEGUIR
   if (interaction.isButton() && interaction.customId === 'seguir') {
 
-  if (!data[user]) {
-    return interaction.reply({
-      content:'❌ Ya no estás en servicio',
-      ephemeral:true
-    });
+  // detener contador visual
+  if (afkIntervals[user]) {
+    clearInterval(afkIntervals[user]);
+    delete afkIntervals[user];
   }
 
-  if (confirmTimers[user]) {
-    clearTimeout(confirmTimers[user]);
-  }
-
+  // detener timer viejo
   if (timers[user]) {
     clearTimeout(timers[user]);
+    delete timers[user];
   }
 
+  // quitar botones
   try {
     await interaction.message.edit({
-      components:[]
+      components: []
     });
   } catch {}
 
-  // 🔥 NO RESETEAR HORAS
-  // data[user] = Date.now(); ❌ ELIMINADO
-
-  startAFK(interaction,user);
+  // NO RESETEAR TIEMPO
+  startAFK(interaction, user);
 
   return interaction.reply({
-    content:'✅ Sigues activo',
-    ephemeral:true
+    content: '✅ Sigues activo',
+    ephemeral: true
   });
 }
 
   // AFK NO
   if (interaction.isButton() && interaction.customId === 'afk_no') {
 
-  if (confirmTimers[user]) {
-    clearTimeout(confirmTimers[user]);
+  // detener contador visual
+  if (afkIntervals[user]) {
+    clearInterval(afkIntervals[user]);
+    delete afkIntervals[user];
   }
 
+  // detener timer
   if (timers[user]) {
     clearTimeout(timers[user]);
+    delete timers[user];
   }
 
+  // quitar botones
+  try {
+    await interaction.message.edit({
+      components: []
+    });
+  } catch {}
+
+  // detener contador de horas
   if (intervals[user]) {
     clearInterval(intervals[user]);
     delete intervals[user];
   }
 
-  try {
-    await interaction.message.edit({
-      components:[]
-    });
-  } catch {}
-
   if (!data[user]) {
     return interaction.reply({
-      content:'❌ Ya no estás en servicio',
-      ephemeral:true
+      content: '❌ Ya no estás en servicio',
+      ephemeral: true
     });
   }
 
@@ -328,26 +331,39 @@ client.on('interactionCreate', async (interaction)=>{
   const horas = Math.floor(minutos / 60);
   const minsRestantes = minutos % 60;
 
-  let tiempoFinal =
+  const tiempoFinal =
     horas > 0
-    ? `${horas}h ${minsRestantes}m`
-    : `${minsRestantes}m`;
+      ? `${horas}h ${minsRestantes}m`
+      : `${minsRestantes}m`;
 
   totalHoras[user] =
     (totalHoras[user] || 0) + (tiempoMs / 3600000);
 
   delete data[user];
 
+  // MENSAJE AUTO SALIDA
+  const ch =
+    interaction.guild.channels.cache.get(AUTO_CHANNEL_ID);
+
+  if (ch) {
+
+    const embed = new EmbedBuilder()
+      .setTitle('🔴 Salida automática AFK')
+      .setDescription(
+ `👤 ${interaction.member.displayName}
+
+ ⏱️ Tiempo trabajado:
+ ${tiempoFinal}`
+      )
+      .setColor('Red')
+      .setImage('https://i.imgur.com/JTmf52O.png');
+
+    ch.send({ embeds: [embed] });
+  }
+
   return interaction.reply({
-    embeds:[
-      new EmbedBuilder()
-        .setTitle('🔴 Salida automática AFK')
-        .setDescription(
-          `${interaction.member}\n⏱️ ${tiempoFinal}`
-        )
-        .setColor('Red')
-    ],
-    ephemeral:true
+    content: '✅ Saliste de servicio',
+    ephemeral: true
     });
   }
 
@@ -424,7 +440,14 @@ client.on('interactionCreate', async (interaction)=>{
       delete intervals[user];
     }
 
-    if (!data[user]) return interaction.reply({ content:'❌ No has hecho entrada', ephemeral:true });
+    if (!data[user]) {
+
+  try {
+    await interaction.deferUpdate();
+  } catch {}
+
+  return;
+}
 
     const tiempoMs = Date.now() - data[user];
 
