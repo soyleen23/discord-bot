@@ -673,7 +673,15 @@ client.on('interactionCreate', async (interaction) => {
       .setFooter({ text: `ID empleado: ${empleadoId}` })
       .setTimestamp();
 
-    await interaction.update({ content: '', embeds: [embed], components: [] });
+    await interaction.update({
+      content: '✅ Contratación completada.',
+      embeds: [],
+      components: []
+    });
+
+    if (hiringChannel) {
+      await hiringChannel.send({ embeds: [embed] });
+    }
 
     try {
       await empleado.send({
@@ -722,7 +730,14 @@ client.on('interactionCreate', async (interaction) => {
       )
       .setTimestamp();
 
-    await interaction.reply({ embeds: [embed] });
+    await interaction.reply({
+      content: '✅ Despido completado.',
+      ephemeral: true
+    });
+
+    if (firingChannel) {
+      await firingChannel.send({ embeds: [embed] });
+    }
 
     try {
       await empleado?.send({
