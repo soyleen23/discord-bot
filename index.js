@@ -19,7 +19,6 @@ function formatTiempo(horasDecimal) {
   const totalMin = Math.floor(horasDecimal * 60);
   const horas = Math.floor(totalMin / 60);
   const minutos = totalMin % 60;
-
   if (horas > 0) return `${horas}h ${minutos}m`;
   return `${minutos}m`;
 }
@@ -34,13 +33,8 @@ function fechaDiscord(ms = Date.now()) {
   return `<t:${Math.floor(ms / 1000)}:F>`;
 }
 
-app.get('/', (req, res) => {
-  res.send('Bot activo');
-});
-
-app.listen(3000, () => {
-  console.log('Web funcionando');
-});
+app.get('/', (req, res) => res.send('Bot activo'));
+app.listen(3000, () => console.log('Web funcionando'));
 
 const client = new Client({
   intents: [
@@ -58,6 +52,13 @@ const STAFF_ROLE_IDS = ['1495644560666398831'];
 const AFK_TIME = 4 * 60 * 60 * 1000;
 const DB_FILE = './database.json';
 
+const RANGOS = {
+  duena: 'DUEÑA',
+  jefe: 'JEFE',
+  delivery: 'DELIVERY',
+  empleado: 'EMPLEADO'
+};
+
 const data = {};
 const timers = {};
 const confirmTimers = {};
@@ -66,6 +67,7 @@ const afkMessages = {};
 const afkIntervals = {};
 const userGuilds = {};
 const inactivityReports = {};
+const pendingContrataciones = {};
 
 let db = {
   empleados: {},
@@ -111,10 +113,24 @@ let panelChannel = null;
 let inactivityPanelID = null;
 let inactivityChannel = null;
 
+let hiringPanelID = null;
+let hiringChannel = null;
+
+let firingPanelID = null;
+let firingChannel = null;
+
 let refreshingPanel = false;
 let refreshingInactivityPanel = false;
+let refreshingHiringPanel = false;
+let refreshingFiringPanel = false;
+
 let refreshPanelTimeout = null;
+let hiringPanelTimeout = null;
+let firingPanelTimeout = null;
+
 let refreshPanelQueued = false;
+let hiringPanelQueued = false;
+let firingPanelQueued = false;
 
 // ================= PANEL PONCHE =================
 async function refreshPanel() {
@@ -174,27 +190,118 @@ function refreshPanelDespues() {
 }
 
 // ================= CONTRATACION =================
-async function crearPanelContratacion(channel) {
-  const embed = new EmbedBuilder()
-    .setTitle('🧾 Centro de Contratación')
-    .setDescription(
-      'Selecciona un usuario para registrarlo como empleado.\n\n' +
-      'Una vez contratado, podrá usar el panel de ponche y acumular horas en el ranking.'
-    )
-    .setColor('#9b59b6')
-    .setImage('https://i.imgur.com/FTWRO4r.png')
-    .setFooter({ text: 'Sweet Holes Donuts | Recursos Humanos' })
-    .setTimestamp();
+async function crearPanelContratacion() {
+  if (!hiringChannel) return;
 
-  const row = new ActionRowBuilder().addComponents(
-    new UserSelectMenuBuilder()
-      .setCustomId('seleccionar_empleado')
-      .setPlaceholder('Seleccionar empleado para contratar')
-      .setMinValues(1)
-      .setMaxValues(1)
-  );
+  if (refreshingHiringPanel) {
+    hiringPanelQueued = true;
+    return;
+  }
 
-  await channel.send({ embeds: [embed], components: [row] });
+  refreshingHiringPanel = true;
+
+  try {
+    if (hiringPanelID) {
+      try {
+        const old = await hiringChannel.messages.fetch(hiringPanelID);
+        await old.delete();
+      } catch {}
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle('🧾 Centro de Contratación')
+      .setDescription(
+        'Selecciona un usuario para contratarlo.\n\n' +
+        'Después de seleccionarlo, podrás elegir su rango: DUEÑA, JEFE, DELIVERY o EMPLEADO.'
+      )
+      .setColor('#9b59b6')
+      .setImage('https://i.imgur.com/FTWRO4r.png')
+      .setFooter({ text: 'Sweet Holes Donuts | Recursos Humanos' })
+      .setTimestamp();
+
+    const row = new ActionRowBuilder().addComponents(
+      new UserSelectMenuBuilder()
+        .setCustomId('seleccionar_empleado')
+        .setPlaceholder('Seleccionar persona para contratar')
+        .setMinValues(1)
+        .setMaxValues(1)
+    );
+
+    const msg = await hiringChannel.send({ embeds: [embed], components: [row] });
+    hiringPanelID = msg.id;
+  } finally {
+    refreshingHiringPanel = false;
+
+    if (hiringPanelQueued) {
+      hiringPanelQueued = false;
+      refreshContratacionDespues();
+    }
+  }
+}
+
+function refreshContratacionDespues() {
+  if (hiringPanelTimeout) clearTimeout(hiringPanelTimeout);
+
+  hiringPanelTimeout = setTimeout(async () => {
+    hiringPanelTimeout = null;
+    await crearPanelContratacion();
+  }, 2500);
+}
+
+// ================= DESPIDOS =================
+async function crearPanelDespidos() {
+  if (!firingChannel) return;
+
+  if (refreshingFiringPanel) {
+    firingPanelQueued = true;
+    return;
+  }
+
+  refreshingFiringPanel = true;
+
+  try {
+    if (firingPanelID) {
+      try {
+        const old = await firingChannel.messages.fetch(firingPanelID);
+        await old.delete();
+      } catch {}
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle('📤 Centro de Despidos')
+      .setDescription('Selecciona un empleado contratado para despedirlo del sistema.')
+      .setColor('#e74c3c')
+      .setImage('https://i.imgur.com/JTmf52O.png')
+      .setFooter({ text: 'Sweet Holes Donuts | Recursos Humanos' })
+      .setTimestamp();
+
+    const row = new ActionRowBuilder().addComponents(
+      new UserSelectMenuBuilder()
+        .setCustomId('despedir_empleado')
+        .setPlaceholder('Seleccionar empleado para despedir')
+        .setMinValues(1)
+        .setMaxValues(1)
+    );
+
+    const msg = await firingChannel.send({ embeds: [embed], components: [row] });
+    firingPanelID = msg.id;
+  } finally {
+    refreshingFiringPanel = false;
+
+    if (firingPanelQueued) {
+      firingPanelQueued = false;
+      refreshDespidosDespues();
+    }
+  }
+}
+
+function refreshDespidosDespues() {
+  if (firingPanelTimeout) clearTimeout(firingPanelTimeout);
+
+  firingPanelTimeout = setTimeout(async () => {
+    firingPanelTimeout = null;
+    await crearPanelDespidos();
+  }, 2500);
 }
 
 // ================= REPORTES =================
@@ -224,52 +331,20 @@ async function crearEmbedReporte(report, guild, estado, staffMember = null) {
     .setColor(color)
     .setThumbnail(user?.displayAvatarURL({ dynamic: true, size: 256 }) || null)
     .addFields(
-      {
-        name: '👤 Empleado',
-        value: `${member || `<@${report.userId}>`}\n${member?.displayName || user?.username || 'Usuario desconocido'}`,
-        inline: true
-      },
-      {
-        name: '🆔 ID del empleado',
-        value: report.userId,
-        inline: true
-      },
-      {
-        name: '⏱ Duración estimada',
-        value: cortarTexto(report.tiempo, 100),
-        inline: true
-      },
-      {
-        name: '📝 Motivo',
-        value: cortarTexto(report.razon, 1000),
-        inline: false
-      },
-      {
-        name: '📌 Estado',
-        value: estadoTexto,
-        inline: true
-      },
-      {
-        name: '📅 Enviado',
-        value: fechaDiscord(report.createdAt),
-        inline: true
-      }
+      { name: '👤 Empleado', value: `${member || `<@${report.userId}>`}\n${member?.displayName || user?.username || 'Usuario desconocido'}`, inline: true },
+      { name: '🆔 ID del empleado', value: report.userId, inline: true },
+      { name: '⏱ Duración estimada', value: cortarTexto(report.tiempo, 100), inline: true },
+      { name: '📝 Motivo', value: cortarTexto(report.razon, 1000), inline: false },
+      { name: '📌 Estado', value: estadoTexto, inline: true },
+      { name: '📅 Enviado', value: fechaDiscord(report.createdAt), inline: true }
     )
     .setFooter({ text: `Reporte ID: ${report.id}` })
     .setTimestamp();
 
   if (staffMember) {
     embed.addFields(
-      {
-        name: '🛡 Revisado por',
-        value: `${staffMember}\n${staffMember.displayName}`,
-        inline: true
-      },
-      {
-        name: '🕒 Fecha de revisión',
-        value: fechaDiscord(),
-        inline: true
-      }
+      { name: '🛡 Revisado por', value: `${staffMember}\n${staffMember.displayName}`, inline: true },
+      { name: '🕒 Fecha de revisión', value: fechaDiscord(), inline: true }
     );
   }
 
@@ -370,6 +445,7 @@ async function updateLeaderboard(guild) {
 
     texto += `${medal} **${member?.displayName || 'Empleado'}**\n`;
     texto += `> 👤 <@${item.userId}>\n`;
+    texto += `> 🏷 ${item.info.rango || 'EMPLEADO'}\n`;
     texto += `> ⏱ ${formatTiempo(item.horas)}\n\n`;
   });
 
@@ -427,7 +503,6 @@ function iniciarRankingAutomatico() {
 
     db.lastMondayUpdate = claveLunes;
     await resetearRankingSemanal(guild);
-
     guardarDB();
   }, 60 * 60 * 1000);
 }
@@ -522,7 +597,6 @@ async function autoSalida(interaction, user) {
   delete data[user];
 
   if (ch) await ch.send({ embeds: [embed] });
-
   refreshPanelDespues();
 }
 
@@ -538,26 +612,52 @@ client.on('interactionCreate', async (interaction) => {
     const empleadoId = interaction.values[0];
     const empleado = await interaction.guild.members.fetch(empleadoId).catch(() => null);
 
-    if (!empleado) {
-      return interaction.reply({ content: '❌ No pude encontrar ese usuario.', ephemeral: true });
+    if (!empleado) return interaction.reply({ content: '❌ No pude encontrar ese usuario.', ephemeral: true });
+    if (empleado.user.bot) return interaction.reply({ content: '❌ No puedes contratar bots.', ephemeral: true });
+    if (db.empleados[empleadoId]) return interaction.reply({ content: '❌ Ese usuario ya está contratado.', ephemeral: true });
+
+    pendingContrataciones[interaction.user.id] = empleadoId;
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('rango_duena').setLabel('DUEÑA').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId('rango_jefe').setLabel('JEFE').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('rango_delivery').setLabel('DELIVERY').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId('rango_empleado').setLabel('EMPLEADO').setStyle(ButtonStyle.Secondary)
+    );
+
+    return interaction.reply({
+      content: `Selecciona el rango para ${empleado}.`,
+      components: [row],
+      ephemeral: true
+    });
+  }
+
+  if (interaction.isButton() && interaction.customId.startsWith('rango_')) {
+    if (!esStaff(interaction.member)) {
+      return interaction.reply({ content: '❌ No tienes permiso.', ephemeral: true });
     }
 
-    if (empleado.user.bot) {
-      return interaction.reply({ content: '❌ No puedes contratar bots.', ephemeral: true });
+    const empleadoId = pendingContrataciones[interaction.user.id];
+    if (!empleadoId) {
+      return interaction.reply({ content: '❌ No hay una contratación pendiente.', ephemeral: true });
     }
 
-    if (db.empleados[empleadoId]) {
-      return interaction.reply({ content: '❌ Ese usuario ya está contratado.', ephemeral: true });
-    }
+    const rangoKey = interaction.customId.replace('rango_', '');
+    const rango = RANGOS[rangoKey];
+
+    const empleado = await interaction.guild.members.fetch(empleadoId).catch(() => null);
+    if (!empleado) return interaction.reply({ content: '❌ No pude encontrar ese usuario.', ephemeral: true });
 
     db.empleados[empleadoId] = {
       contratadoPor: interaction.user.id,
-      contratadoEn: Date.now()
+      contratadoEn: Date.now(),
+      rango
     };
 
     if (!db.horas[empleadoId]) db.horas[empleadoId] = 0;
 
     guardarDB();
+    delete pendingContrataciones[interaction.user.id];
 
     const embed = new EmbedBuilder()
       .setTitle('✅ Empleado Contratado')
@@ -565,6 +665,7 @@ client.on('interactionCreate', async (interaction) => {
       .setThumbnail(empleado.user.displayAvatarURL({ dynamic: true, size: 256 }))
       .addFields(
         { name: '👤 Empleado', value: `${empleado}\n${empleado.displayName}`, inline: true },
+        { name: '🏷 Rango', value: rango, inline: true },
         { name: '🛡 Contratado por', value: `${interaction.member}\n${interaction.member.displayName}`, inline: true },
         { name: '📅 Fecha', value: fechaDiscord(), inline: false },
         { name: '⏱ Horas iniciales', value: formatTiempo(db.horas[empleadoId]), inline: true }
@@ -572,14 +673,14 @@ client.on('interactionCreate', async (interaction) => {
       .setFooter({ text: `ID empleado: ${empleadoId}` })
       .setTimestamp();
 
-    await interaction.reply({ embeds: [embed] });
+    await interaction.update({ content: '', embeds: [embed], components: [] });
 
     try {
       await empleado.send({
         embeds: [
           new EmbedBuilder()
             .setTitle('✅ Has sido contratado')
-            .setDescription('Ya puedes usar el panel de ponche para registrar tu jornada.')
+            .setDescription(`Tu rango es: **${rango}**\nYa puedes usar el panel de ponche.`)
             .setColor('#2ecc71')
             .setTimestamp()
         ]
@@ -587,6 +688,56 @@ client.on('interactionCreate', async (interaction) => {
     } catch {}
 
     await updateLeaderboard(interaction.guild);
+    refreshContratacionDespues();
+    return;
+  }
+
+  if (interaction.isUserSelectMenu() && interaction.customId === 'despedir_empleado') {
+    if (!esStaff(interaction.member)) {
+      return interaction.reply({ content: '❌ No tienes permiso para despedir empleados.', ephemeral: true });
+    }
+
+    const empleadoId = interaction.values[0];
+    const empleado = await interaction.guild.members.fetch(empleadoId).catch(() => null);
+
+    if (!db.empleados[empleadoId]) {
+      return interaction.reply({ content: '❌ Esa persona no está contratada.', ephemeral: true });
+    }
+
+    const info = db.empleados[empleadoId];
+
+    delete db.empleados[empleadoId];
+    delete db.horas[empleadoId];
+    guardarDB();
+
+    const embed = new EmbedBuilder()
+      .setTitle('📤 Empleado Despedido')
+      .setColor('#e74c3c')
+      .setThumbnail(empleado?.user.displayAvatarURL({ dynamic: true, size: 256 }) || null)
+      .addFields(
+        { name: '👤 Persona', value: `${empleado || `<@${empleadoId}>`}`, inline: true },
+        { name: '🏷 Rango anterior', value: info.rango || 'EMPLEADO', inline: true },
+        { name: '🛡 Despedido por', value: `${interaction.member}\n${interaction.member.displayName}`, inline: true },
+        { name: '📅 Fecha', value: fechaDiscord(), inline: false }
+      )
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [embed] });
+
+    try {
+      await empleado?.send({
+        embeds: [
+          new EmbedBuilder()
+            .setTitle('📤 Has sido despedido')
+            .setDescription('Ya no podrás usar el panel de ponche.')
+            .setColor('#e74c3c')
+            .setTimestamp()
+        ]
+      });
+    } catch {}
+
+    await updateLeaderboard(interaction.guild);
+    refreshDespidosDespues();
     return;
   }
 
@@ -606,7 +757,6 @@ client.on('interactionCreate', async (interaction) => {
     } catch {}
 
     startAFK(interaction, user);
-
     return interaction.reply({ content: '✅ Sigues activo', ephemeral: true });
   }
 
@@ -630,9 +780,7 @@ client.on('interactionCreate', async (interaction) => {
       delete intervals[user];
     }
 
-    if (!data[user]) {
-      return interaction.reply({ content: '❌ Ya no estás en servicio', ephemeral: true });
-    }
+    if (!data[user]) return interaction.reply({ content: '❌ Ya no estás en servicio', ephemeral: true });
 
     const tiempoMs = Date.now() - data[user];
     const minutos = Math.floor(tiempoMs / 60000);
@@ -642,7 +790,6 @@ client.on('interactionCreate', async (interaction) => {
 
     db.horas[user] = (db.horas[user] || 0) + (tiempoMs / 3600000);
     guardarDB();
-
     delete data[user];
 
     const guild = interaction.guild || client.guilds.cache.get(userGuilds[user]);
@@ -659,7 +806,6 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (guild) await updateLeaderboard(guild);
-
     refreshPanelDespues();
 
     return interaction.reply({ content: '✅ Saliste de servicio', ephemeral: true });
@@ -668,20 +814,13 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton() && interaction.customId.startsWith('aprobar_')) {
     await interaction.deferReply({ ephemeral: true });
 
-    if (!esStaff(interaction.member)) {
-      return interaction.editReply({ content: '❌ No tienes permiso' });
-    }
+    if (!esStaff(interaction.member)) return interaction.editReply({ content: '❌ No tienes permiso' });
 
     const reportId = interaction.customId.replace('aprobar_', '');
     const report = inactivityReports[reportId];
 
-    if (!report) {
-      return interaction.editReply({ content: '❌ No encontré este reporte. Puede que el bot se haya reiniciado.' });
-    }
-
-    if (report.status !== 'pendiente') {
-      return interaction.editReply({ content: '❌ Este reporte ya fue revisado.' });
-    }
+    if (!report) return interaction.editReply({ content: '❌ No encontré este reporte. Puede que el bot se haya reiniciado.' });
+    if (report.status !== 'pendiente') return interaction.editReply({ content: '❌ Este reporte ya fue revisado.' });
 
     report.status = 'aprobado';
     report.reviewedBy = interaction.user.id;
@@ -691,7 +830,6 @@ client.on('interactionCreate', async (interaction) => {
 
     await interaction.message.edit({ embeds: [embed], components: [] });
     await avisarEmpleadoReporte(report, interaction.guild, 'aprobado', interaction.member);
-
     await interaction.editReply({ content: `✅ Reporte aprobado. Revisado por ${interaction.member.displayName}.` });
 
     return mantenerPanelAbajo();
@@ -700,20 +838,13 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton() && interaction.customId.startsWith('rechazar_')) {
     await interaction.deferReply({ ephemeral: true });
 
-    if (!esStaff(interaction.member)) {
-      return interaction.editReply({ content: '❌ No tienes permiso' });
-    }
+    if (!esStaff(interaction.member)) return interaction.editReply({ content: '❌ No tienes permiso' });
 
     const reportId = interaction.customId.replace('rechazar_', '');
     const report = inactivityReports[reportId];
 
-    if (!report) {
-      return interaction.editReply({ content: '❌ No encontré este reporte. Puede que el bot se haya reiniciado.' });
-    }
-
-    if (report.status !== 'pendiente') {
-      return interaction.editReply({ content: '❌ Este reporte ya fue revisado.' });
-    }
+    if (!report) return interaction.editReply({ content: '❌ No encontré este reporte. Puede que el bot se haya reiniciado.' });
+    if (report.status !== 'pendiente') return interaction.editReply({ content: '❌ Este reporte ya fue revisado.' });
 
     report.status = 'rechazado';
     report.reviewedBy = interaction.user.id;
@@ -723,7 +854,6 @@ client.on('interactionCreate', async (interaction) => {
 
     await interaction.message.edit({ embeds: [embed], components: [] });
     await avisarEmpleadoReporte(report, interaction.guild, 'rechazado', interaction.member);
-
     await interaction.editReply({ content: `❌ Reporte rechazado. Revisado por ${interaction.member.displayName}.` });
 
     return mantenerPanelAbajo();
@@ -751,9 +881,11 @@ client.on('interactionCreate', async (interaction) => {
 
     startAFK(interaction, user);
 
+    const rango = db.empleados[user]?.rango || 'EMPLEADO';
+
     const embed = new EmbedBuilder()
       .setTitle('🟢 En Servicio')
-      .setDescription(`${interaction.member.displayName}\n⏱️ Tiempo: 0m`)
+      .setDescription(`${interaction.member.displayName}\n🏷 ${rango}\n⏱️ Tiempo: 0m`)
       .setColor('Green')
       .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true, size: 256 }))
       .setImage('https://i.imgur.com/iy4wcni.png');
@@ -773,7 +905,7 @@ client.on('interactionCreate', async (interaction) => {
       const minsRestantes = minutos % 60;
       const tiempoTexto = horas > 0 ? `${horas}h ${minsRestantes}m` : `${minsRestantes}m`;
 
-      embed.setDescription(`${interaction.member.displayName}\n⏱️ Tiempo: ${tiempoTexto}`);
+      embed.setDescription(`${interaction.member.displayName}\n🏷 ${rango}\n⏱️ Tiempo: ${tiempoTexto}`);
 
       try {
         await msg.edit({ embeds: [embed] });
@@ -805,7 +937,6 @@ client.on('interactionCreate', async (interaction) => {
 
     db.horas[user] = (db.horas[user] || 0) + (tiempoMs / 3600000);
     guardarDB();
-
     delete data[user];
 
     if (timers[user]) {
@@ -823,12 +954,15 @@ client.on('interactionCreate', async (interaction) => {
       delete afkIntervals[user];
     }
 
+    const rango = db.empleados[user]?.rango || 'EMPLEADO';
+
     await interaction.channel.send({
       embeds: [
         new EmbedBuilder()
           .setTitle('🔴 Se fue de servicio')
           .setDescription(
-            `👤 ${interaction.member.displayName}\n\n` +
+            `👤 ${interaction.member.displayName}\n` +
+            `🏷 ${rango}\n\n` +
             `📊 Tiempo trabajado:\n` +
             `⏱️ ${tiempoFinal}`
           )
@@ -840,7 +974,6 @@ client.on('interactionCreate', async (interaction) => {
 
     await interaction.deferUpdate();
     await updateLeaderboard(interaction.guild);
-
     refreshPanelDespues();
     return;
   }
@@ -848,19 +981,16 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton() && interaction.customId === 'horas') {
     if (!esStaff(interaction.member)) {
       const horas = db.horas[user] || 0;
+      const rango = db.empleados[user]?.rango || 'EMPLEADO';
 
       return interaction.reply({
-        content: `⏱️ Tus horas registradas esta semana: ${formatTiempo(horas)}`,
+        content: `🏷 Rango: ${rango}\n⏱️ Tus horas registradas esta semana: ${formatTiempo(horas)}`,
         ephemeral: true
       });
     }
 
     const empleados = Object.entries(db.empleados)
-      .map(([id, info]) => ({
-        id,
-        info,
-        horas: db.horas[id] || 0
-      }))
+      .map(([id, info]) => ({ id, info, horas: db.horas[id] || 0 }))
       .sort((a, b) => b.horas - a.horas);
 
     let texto = '';
@@ -869,6 +999,7 @@ client.on('interactionCreate', async (interaction) => {
       const member = interaction.guild.members.cache.get(empleado.id);
       texto += `**${i + 1}. ${member?.displayName || 'Empleado'}**\n`;
       texto += `> 👤 <@${empleado.id}>\n`;
+      texto += `> 🏷 ${empleado.info.rango || 'EMPLEADO'}\n`;
       texto += `> ⏱ ${formatTiempo(empleado.horas)}\n`;
       texto += `> 📅 Contratado: ${fechaDiscord(empleado.info.contratadoEn)}\n\n`;
     });
@@ -974,7 +1105,14 @@ client.on('messageCreate', async (msg) => {
 
   if (msg.content === '!contratacion') {
     if (!esStaff(msg.member)) return;
-    await crearPanelContratacion(msg.channel);
+    hiringChannel = msg.channel;
+    await crearPanelContratacion();
+  }
+
+  if (msg.content === '!despidos') {
+    if (!esStaff(msg.member)) return;
+    firingChannel = msg.channel;
+    await crearPanelDespidos();
   }
 
   if (msg.content === '!ranking') {
@@ -995,3 +1133,4 @@ client.once('ready', () => {
 });
 
 client.login(process.env.TOKEN);
+
